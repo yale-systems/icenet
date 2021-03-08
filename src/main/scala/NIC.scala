@@ -163,6 +163,14 @@ trait IceNicControllerModule extends HasRegMap with HasNICParameters {
 
 case class IceNicControllerParams(address: BigInt, beatBytes: Int)
 
+// Adam
+class DummyModule extends Module {
+  val io = IO(new Bundle{
+    val in = Flipped(Decoupled(new StreamChannel(NET_IF_WIDTH)))
+    val out = Decoupled(new StreamChannel(NET_IF_WIDTH))
+  })
+  io.in <> io.out
+}
 /*
  * Take commands from the CPU over TL2, expose as Queues
  */
@@ -236,9 +244,15 @@ class IceNicSendPath(nInputTaps: Int = 0)(implicit p: Parameters)
     } else { preArbOut }
 
     val limiter = Module(new RateLimiter(new StreamChannel(NET_IF_WIDTH)))
-    limiter.io.in <> unlimitedOut
+    //limiter.io.in <> unlimitedOut
     limiter.io.settings := io.rlimit
     io.out <> limiter.io.out
+
+    // Adam
+    val dummyModule = Module(new DummyModule())
+
+    dummyModule.io.in <> unlimitedOut
+    limiter.io.in <> dummyModule.io.out
   }
 }
 
@@ -381,11 +395,16 @@ class IceNicRecvPathModule(outer: IceNicRecvPath)
 
     (out, recvreq)
   } else { (bufout, io.recv.req) })
+    
+  // Adam
+  val dummyModule = Module(new DummyModule())
+  dummyModule.io.in <> csumout
 
   val writer = outer.writer.module
   writer.io.recv.req <> Queue(recvreq, 1)
   io.recv.comp <> writer.io.recv.comp
-  writer.io.in <> csumout
+  //writer.io.in <> csumout
+  writer.io.in <> dummyModule.io.out
   writer.io.length.valid := buflen.valid
   writer.io.length.bits  := buflen.bits
 }
