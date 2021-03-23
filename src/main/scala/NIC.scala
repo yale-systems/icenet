@@ -207,7 +207,7 @@ class IceNicSendPath(nInputTaps: Int = 0)(implicit p: Parameters)
     readreq.bits.partial := io.send.req.bits(63)
     io.send.comp <> reader.module.io.resp
 
-    val preArbOut = if (checksumOffload) {
+    val preArbOut = if (checksumOffload) { // current config has this set to false, so can ignore for now
       val readerOut = reader.module.io.out
       val arb = Module(new PacketArbiter(2))
       val bufFlits = (packetMaxBytes - 1) / NET_IF_BYTES + 1
@@ -244,15 +244,20 @@ class IceNicSendPath(nInputTaps: Int = 0)(implicit p: Parameters)
     } else { preArbOut }
 
     val limiter = Module(new RateLimiter(new StreamChannel(NET_IF_WIDTH)))
-    //limiter.io.in <> unlimitedOut
+    limiter.io.in <> unlimitedOut
     limiter.io.settings := io.rlimit
-    io.out <> limiter.io.out
+    limiter.io.out.ready := true.B // I think this is kosher?
+    //io.out <> limiter.io.out
 
     // Adam
-    val dummyModule = Module(new DummyModule())
+    val UINTEncodeModule = Module(new UINTEncodeBlackBox(NET_IF_WIDTH))
+    UINTEncodeModule.io.clk := clock
+    UINTEncodeModule.io.aresetn := !reset.asBool()
 
-    dummyModule.io.in <> unlimitedOut
-    limiter.io.in <> dummyModule.io.out
+    UINTEncodeModule.io.s_axis_tvalid := limiter.io.out.valid
+    UINTEncodeModule.io.s_axis_tdata := limiter.io.out.bits.data
+    io.out.valid := UINTEncodeModule.io.m_axis_tvalid
+    io.out.bits.data := UINTEncodeModule.io.m_axis_tdata
   }
 }
 
@@ -279,8 +284,19 @@ class IceNicWriter(implicit p: Parameters) extends NICLazyModule {
     writer.module.io.req.bits.length := io.length.bits
     io.recv.req.ready := helper.fire(io.recv.req.valid)
 
-    writer.module.io.in.valid := io.in.valid && streaming
-    writer.module.io.in.bits := io.in.bits
+    // Adam
+    val UINTDecodeModule = Module(new UINTDecodeBlackBox(NET_IF_WIDTH))
+    UINTDecodeModule.io.clk := clock
+    UINTDecodeModule.io.aresetn := !reset.asBool()
+    UINTDecodeModule.io.s_axis_tvalid := io.in.valid && streaming
+    UINTDecodeModule.io.s_axis_tdata := io.in.bits.data
+
+    //writer.module.io.in.valid := io.in.valid && streaming
+    //writer.module.io.in.bits := io.in.bits
+    
+    writer.module.io.in.valid := UINTDecodeModule.io.m_axis_tvalid && streaming
+    writer.module.io.in.bits.data := UINTDecodeModule.io.m_axis_tdata
+    
     io.in.ready := writer.module.io.in.ready && streaming
 
     io.recv.comp <> writer.module.io.resp
@@ -397,14 +413,16 @@ class IceNicRecvPathModule(outer: IceNicRecvPath)
   } else { (bufout, io.recv.req) })
     
   // Adam
-  val dummyModule = Module(new DummyModule())
-  dummyModule.io.in <> csumout
+  val UINTDecodeModule = Module(new UINTDecodeBlackBox(NET_IF_WIDTH))
+  UINTDecodeModule.io.clk := clock
+  UINTDecodeModule.io.aresetn := !reset.asBool()
+  //UINTDecodeModule.io.s_axis_tdata <> csumout
 
   val writer = outer.writer.module
   writer.io.recv.req <> Queue(recvreq, 1)
   io.recv.comp <> writer.io.recv.comp
-  //writer.io.in <> csumout
-  writer.io.in <> dummyModule.io.out
+  writer.io.in <> csumout
+ ///writer.io.in <> UINTDecodeModule.io.m_axis_tdata
   writer.io.length.valid := buflen.valid
   writer.io.length.bits  := buflen.bits
 }
