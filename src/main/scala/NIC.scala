@@ -249,7 +249,7 @@ class IceNicSendPath(nInputTaps: Int = 0)(implicit p: Parameters)
     //io.out <> limiter.io.out
 
     // Adam
-    val encoder = Module(new UINTEncoder(NET_IF_WIDTH))
+    val encoder = Module(new UINTEncoder())
     encoder.io.in <> limiter.io.out
     io.out <> encoder.io.out
   }
@@ -279,7 +279,7 @@ class IceNicWriter(implicit p: Parameters) extends NICLazyModule {
     io.recv.req.ready := helper.fire(io.recv.req.valid)
 
     // Adam
-    val decoder = Module(new UINTDecoder(NET_IF_WIDTH))
+    val decoder = Module(new UINTDecoder())
     io.in <> decoder.io.in
 
     //writer.module.io.in.valid := io.in.valid && streaming
