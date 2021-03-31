@@ -164,13 +164,13 @@ trait IceNicControllerModule extends HasRegMap with HasNICParameters {
 case class IceNicControllerParams(address: BigInt, beatBytes: Int)
 
 // Adam
-class DummyModule extends Module {
-  val io = IO(new Bundle{
-    val in = Flipped(Decoupled(new StreamChannel(NET_IF_WIDTH)))
-    val out = Decoupled(new StreamChannel(NET_IF_WIDTH))
-  })
-  io.in <> io.out
-}
+//class DummyModule extends Module {
+//  val io = IO(new Bundle{
+//    val in = Flipped(Decoupled(new StreamChannel(NET_IF_WIDTH)))
+//    val out = Decoupled(new StreamChannel(NET_IF_WIDTH))
+//  })
+//  io.in <> io.out
+//}
 /*
  * Take commands from the CPU over TL2, expose as Queues
  */
@@ -246,18 +246,12 @@ class IceNicSendPath(nInputTaps: Int = 0)(implicit p: Parameters)
     val limiter = Module(new RateLimiter(new StreamChannel(NET_IF_WIDTH)))
     limiter.io.in <> unlimitedOut
     limiter.io.settings := io.rlimit
-    limiter.io.out.ready := true.B // I think this is kosher?
     //io.out <> limiter.io.out
 
     // Adam
-    val UINTEncodeModule = Module(new UINTEncodeBlackBox(NET_IF_WIDTH))
-    UINTEncodeModule.io.clk := clock
-    UINTEncodeModule.io.aresetn := !reset.asBool()
-
-    UINTEncodeModule.io.s_axis_tvalid := limiter.io.out.valid
-    UINTEncodeModule.io.s_axis_tdata := limiter.io.out.bits.data
-    io.out.valid := UINTEncodeModule.io.m_axis_tvalid
-    io.out.bits.data := UINTEncodeModule.io.m_axis_tdata
+    val encoder = Module(new UINTEncoder(NET_IF_WIDTH))
+    encoder.io.in <> limiter.io.out
+    io.out <> encoder.io.out
   }
 }
 
@@ -285,17 +279,13 @@ class IceNicWriter(implicit p: Parameters) extends NICLazyModule {
     io.recv.req.ready := helper.fire(io.recv.req.valid)
 
     // Adam
-    val UINTDecodeModule = Module(new UINTDecodeBlackBox(NET_IF_WIDTH))
-    UINTDecodeModule.io.clk := clock
-    UINTDecodeModule.io.aresetn := !reset.asBool()
-    UINTDecodeModule.io.s_axis_tvalid := io.in.valid && streaming
-    UINTDecodeModule.io.s_axis_tdata := io.in.bits.data
+    val decoder = Module(new UINTDecoder(NET_IF_WIDTH))
+    io.in <> decoder.io.in
 
     //writer.module.io.in.valid := io.in.valid && streaming
     //writer.module.io.in.bits := io.in.bits
     
-    writer.module.io.in.valid := UINTDecodeModule.io.m_axis_tvalid && streaming
-    writer.module.io.in.bits.data := UINTDecodeModule.io.m_axis_tdata
+    writer.module.io.in <> decoder.io.out
     
     io.in.ready := writer.module.io.in.ready && streaming
 
@@ -413,9 +403,9 @@ class IceNicRecvPathModule(outer: IceNicRecvPath)
   } else { (bufout, io.recv.req) })
     
   // Adam
-  val UINTDecodeModule = Module(new UINTDecodeBlackBox(NET_IF_WIDTH))
-  UINTDecodeModule.io.clk := clock
-  UINTDecodeModule.io.aresetn := !reset.asBool()
+  //val UINTDecodeModule = Module(new UINTDecodeBlackBox(NET_IF_WIDTH))
+  //UINTDecodeModule.io.clk := clock
+  //UINTDecodeModule.io.aresetn := !reset.asBool()
   //UINTDecodeModule.io.s_axis_tdata <> csumout
 
   val writer = outer.writer.module
